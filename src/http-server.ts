@@ -268,8 +268,8 @@ class AzureDevOpsMcpHttpServer {
         message = req.body;
         console.log('Using parsed JSON-RPC message:', message);
         
-        // Handle MCP protocol messages directly
-        const response = await this.handleMcpMessage(message, server, getAzureDevOpsClient);
+        // Delegate ALL messages to the real MCP server
+        const response = await this.delegateToMcpServer(message, server);
         
         // Send response (handle notifications that return null)
         if (response !== null) {
@@ -309,172 +309,99 @@ class AzureDevOpsMcpHttpServer {
     }
   }
 
-  // Handle MCP protocol messages directly
-  private async handleMcpMessage(message: any, server: McpServer, getAzureDevOpsClient: () => Promise<any>): Promise<any> {
-    console.log('Handling MCP message:', message.method);
+  // Delegate ALL MCP messages to the real server (universal approach)
+  private async delegateToMcpServer(message: any, server: McpServer): Promise<any> {
+    console.log('Delegating MCP message to server:', message.method);
     
-    try {
-      switch (message.method) {
-        case 'initialize':
-          console.log('Handling initialize request');
-          return {
-            jsonrpc: "2.0",
-            id: message.id,
-            result: {
-              protocolVersion: "2024-11-05",
-              capabilities: {
-                tools: {},
-                resources: {},
-                prompts: {},
-                logging: {}
-              },
-              serverInfo: {
-                name: "Azure DevOps MCP Server",
-                version: packageVersion
-              }
-            }
-          };
-
-        case 'notifications/initialized':
-          console.log('Handling initialized notification');
-          // Notifications don't require responses - return null to indicate no response needed
-          return null;
-
-        case 'tools/list':
-          console.log('Handling list_tools request - delegating to MCP server');
-          
-          // Create a temporary transport to get the tools from the actual server
-          const tempResponseData: any[] = [];
-          const tempTransport = {
-            start: () => Promise.resolve(),
-            close: () => Promise.resolve(),
-            send: (msg: any) => {
-              console.log('Server response:', msg);
-              tempResponseData.push(msg);
-              return Promise.resolve();
-            },
-            onclose: undefined as (() => void) | undefined,
-            onerror: undefined as ((error: Error) => void) | undefined,
-            onmessage: undefined as ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined
-          };
-          
-          try {
-            // Connect the server with the temporary transport
-            await server.connect(tempTransport);
-            
-            // Send the tools/list request to the server
-            if (tempTransport.onmessage) {
-              tempTransport.onmessage(message);
-            }
-            
-            // Wait for the response
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // Return the server's response
-            if (tempResponseData.length > 0) {
-              return tempResponseData[0];
-            } else {
-              console.warn('No response received from MCP server for tools/list');
-              return {
-                jsonrpc: "2.0",
-                id: message.id,
-                result: {
-                  tools: []
-                }
-              };
-            }
-          } catch (error) {
-            console.error('Error listing tools:', error);
-            return {
-              jsonrpc: "2.0", 
-              id: message.id,
-              error: {
-                code: -32603,
-                message: "Failed to list tools",
-                data: error
-              }
-            };
-          }
-
-        case 'tools/call':
-          console.log('Handling tool call request:', message.params?.name, 'with arguments:', message.params?.arguments);
-          
-          // Delegate tool calls to the actual MCP server
-          const callResponseData: any[] = [];
-          const callTransport = {
-            start: () => Promise.resolve(),
-            close: () => Promise.resolve(),
-            send: (msg: any) => {
-              console.log('Tool call server response:', msg);
-              callResponseData.push(msg);
-              return Promise.resolve();
-            },
-            onclose: undefined as (() => void) | undefined,
-            onerror: undefined as ((error: Error) => void) | undefined,
-            onmessage: undefined as ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined
-          };
-          
-          try {
-            // Connect the server with the transport
-            await server.connect(callTransport);
-            
-            // Send the tools/call request to the server
-            if (callTransport.onmessage) {
-              callTransport.onmessage(message);
-            }
-            
-            // Wait for the response (longer timeout for tool execution)
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Return the server's response
-            if (callResponseData.length > 0) {
-              return callResponseData[0];
-            } else {
-              console.warn('No response received from MCP server for tools/call');
-              return {
-                jsonrpc: "2.0",
-                id: message.id,
-                error: {
-                  code: -32603,
-                  message: "Tool execution timeout - no response from server"
-                }
-              };
-            }
-          } catch (error) {
-            console.error('Error calling tool:', error);
-            return {
-              jsonrpc: "2.0", 
-              id: message.id,
-              error: {
-                code: -32603,
-                message: "Failed to call tool",
-                data: error
-              }
-            };
-          }
-
-        default:
-          console.warn('Unknown MCP method:', message.method);
-          return {
+    return new Promise(async (resolve) => {
+      const responseData: any[] = [];
+      const errorData: any[] = [];
+      
+      // Create transport for single request/response
+      const delegateTransport = {
+        start: () => Promise.resolve(),
+        close: () => Promise.resolve(),
+        send: (msg: any) => {
+          console.log('Server response for', message.method, ':', msg);
+          responseData.push(msg);
+          return Promise.resolve();
+        },
+        onclose: undefined as (() => void) | undefined,
+        onerror: (error: Error) => {
+          console.error('Transport error:', error);
+          errorData.push(error);
+        },
+        onmessage: undefined as ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined
+      };
+      
+      try {
+        // Connect server with delegate transport
+        await server.connect(delegateTransport);
+        
+        // Send message to server
+        if (delegateTransport.onmessage) {
+          delegateTransport.onmessage(message);
+        }
+        
+        // Wait for response with appropriate timeout based on message type
+        const timeout = this.getTimeoutForMethod(message.method);
+        await new Promise(timeoutResolve => setTimeout(timeoutResolve, timeout));
+        
+        // Handle different response scenarios
+        if (errorData.length > 0) {
+          // Transport error occurred
+          resolve({
             jsonrpc: "2.0",
             id: message.id,
             error: {
-              code: -32601,
-              message: `Method not found: ${message.method}`
+              code: -32603,
+              message: "Server transport error",
+              data: errorData[0].message
             }
-          };
-      }
-    } catch (error) {
-      console.error('Error handling MCP message:', error);
-      return {
-        jsonrpc: "2.0",
-        id: message.id,
-        error: {
-          code: -32603,
-          message: "Internal error",
-          data: error
+          });
+        } else if (responseData.length > 0) {
+          // Got response from server
+          resolve(responseData[0]);
+        } else if (message.method?.startsWith('notifications/')) {
+          // Notifications don't send responses - return null to indicate no response
+          resolve(null);
+        } else {
+          // No response received within timeout
+          console.warn('No response received from MCP server for:', message.method);
+          resolve({
+            jsonrpc: "2.0",
+            id: message.id,
+            error: {
+              code: -32603,
+              message: `Server timeout: no response for ${message.method}`
+            }
+          });
         }
-      };
+      } catch (error) {
+        console.error('Error delegating to MCP server:', error);
+        resolve({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: {
+            code: -32603,
+            message: "Failed to delegate to server",
+            data: error
+          }
+        });
+      }
+    });
+  }
+  
+  // Get appropriate timeout based on message type
+  private getTimeoutForMethod(method: string): number {
+    if (method?.startsWith('tools/call')) {
+      return 5000; // Tool calls may take longer
+    } else if (method?.startsWith('tools/list') || method?.startsWith('prompts/list')) {
+      return 2000; // List operations
+    } else if (method === 'initialize') {
+      return 1000; // Initialization
+    } else {
+      return 1000; // Default timeout
     }
   }
 
