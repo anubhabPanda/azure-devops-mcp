@@ -1,0 +1,34 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # Server Configuration
+      PORT: 3000
+      HOST: 0.0.0.0
+      
+      # Authentication Configuration  
+      AUTH_PAT_ENABLED: true
+      AUTH_OAUTH_ENABLED: false
+      
+      # CORS Configuration
+      CORS_ENABLED: true
+      CORS_ORIGINS: "*"
+      ALLOWED_ORIGINS: "*"
+      
+      # Rate Limiting
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_REQUESTS: 100
+      
+      # Logging
+      LOG_LEVEL: info
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

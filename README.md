@@ -5,7 +5,7 @@ Easily install the Azure DevOps MCP Server for VS Code or VS Code Insiders:
 [![Install with NPX in VS Code](https://img.shields.io/badge/VS_Code-Install_AzureDevops_MCP_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=ado&config=%7B%20%22type%22%3A%20%22stdio%22%2C%20%22command%22%3A%20%22npx%22%2C%20%22args%22%3A%20%5B%22-y%22%2C%20%22%40azure-devops%2Fmcp%22%2C%20%22%24%7Binput%3Aado_org%7D%22%5D%7D&inputs=%5B%7B%22id%22%3A%20%22ado_org%22%2C%20%22type%22%3A%20%22promptString%22%2C%20%22description%22%3A%20%22Azure%20DevOps%20organization%20name%20%20%28e.g.%20%27contoso%27%29%22%7D%5D)
 [![Install with NPX in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_AzureDevops_MCP_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=ado&quality=insiders&config=%7B%20%22type%22%3A%20%22stdio%22%2C%20%22command%22%3A%20%22npx%22%2C%20%22args%22%3A%20%5B%22-y%22%2C%20%22%40azure-devops%2Fmcp%22%2C%20%22%24%7Binput%3Aado_org%7D%22%5D%7D&inputs=%5B%7B%22id%22%3A%20%22ado_org%22%2C%20%22type%22%3A%20%22promptString%22%2C%20%22description%22%3A%20%22Azure%20DevOps%20organization%20name%20%20%28e.g.%20%27contoso%27%29%22%7D%5D)
 
-This TypeScript project provides a **local** MCP server for Azure DevOps, enabling you to perform a wide range of Azure DevOps tasks directly from your code editor.
+This TypeScript project provides both **local** (stdio) and **remote** (HTTP) MCP servers for Azure DevOps, enabling you to perform a wide range of Azure DevOps tasks directly from your code editor or through HTTP API calls.
 
 > 🚨 **Public Preview:** This project is in public preview. Tools and features may change before general availability.
 
@@ -13,12 +13,16 @@ This TypeScript project provides a **local** MCP server for Azure DevOps, enabli
 
 1. [📺 Overview](#-overview)
 2. [🏆 Expectations](#-expectations)
-3. [⚙️ Supported Tools](#️-supported-tools)
-4. [🔌 Installation & Getting Started](#-installation--getting-started)
-5. [📝 Troubleshooting](#-troubleshooting)
-6. [🎩 Examples & Best Practices](#-examples--best-practices)
-7. [🙋‍♀️ Frequently Asked Questions](#️-frequently-asked-questions)
-8. [📌 Contributing](#-contributing)
+3. [🌐 Server Modes](#-server-modes)
+4. [⚙️ Supported Tools](#️-supported-tools)
+5. [🔌 Installation & Getting Started](#-installation--getting-started)
+6. [🚀 HTTP Server Setup](#-http-server-setup)
+7. [🔐 Authentication](#-authentication)
+8. [🐳 Docker Deployment](#-docker-deployment)
+9. [📝 Troubleshooting](#-troubleshooting)
+10. [🎩 Examples & Best Practices](#-examples--best-practices)
+11. [🙋‍♀️ Frequently Asked Questions](#️-frequently-asked-questions)
+12. [📌 Contributing](#-contributing)
 
 ## 📺 Overview
 
@@ -41,6 +45,23 @@ The Azure DevOps MCP Server brings Azure DevOps context to your agents. Try prom
 ## 🏆 Expectations
 
 The Azure DevOps MCP Server is built from tools that are concise, simple, focused, and easy to use—each designed for a specific scenario. We intentionally avoid complex tools that try to do too much. The goal is to provide a thin abstraction layer over the REST APIs, making data access straightforward and letting the language model handle complex reasoning.
+
+## 🌐 Server Modes
+
+The Azure DevOps MCP Server supports two operational modes:
+
+### 📡 **Stdio Mode (Local)**
+- **Best for:** VS Code integration, local development
+- **Authentication:** Azure CLI credentials
+- **Usage:** Runs as a subprocess of your application
+- **Configuration:** Command-line arguments
+
+### 🌍 **HTTP Mode (Remote)**
+- **Best for:** Cloud deployment, multi-client scenarios, serverless environments
+- **Authentication:** Personal Access Tokens (PAT) or OAuth 2.0
+- **Usage:** Standalone HTTP server with RESTful endpoints
+- **Configuration:** Environment variables
+- **Features:** Rate limiting, CORS, security headers, health checks
 
 ## ✨ Recent Enhancements
 
@@ -251,6 +272,192 @@ Open GitHub Copilot Chat and try a prompt like `List ADO projects`.
 > To start, just include "`This project uses Azure DevOps. Always check to see if the Azure DevOps MCP server has a tool relevant to the user's request`" in your copilot instructions file.
 
 See the [getting started documentation](./docs/GETTINGSTARTED.md) to use our MCP Server with other tools such as Visual Studio 2022, Claude Code, and Cursor.
+
+## 🚀 HTTP Server Setup
+
+The HTTP server mode allows you to deploy the Azure DevOps MCP Server as a standalone web service, perfect for cloud deployments and multi-client scenarios.
+
+### 🚀 Quick Start (HTTP Mode)
+
+1. **Configure Environment Variables**
+
+```bash
+# Generate environment template
+npx @azure-devops/mcp config
+
+# Copy template to .env file
+cp .env.example .env
+
+# Edit .env file with your settings
+```
+
+2. **Start HTTP Server**
+
+```bash
+# Install and start
+npm install -g @azure-devops/mcp
+mcp-server-azuredevops http
+
+# Or with custom port
+mcp-server-azuredevops http --port 8080
+```
+
+3. **Test the Server**
+
+```bash
+# Check health
+curl http://localhost:3000/health
+
+# Get server info
+curl http://localhost:3000/info
+```
+
+### 📡 API Endpoints
+
+| Endpoint | Method | Description |
+|----------|---------|-------------|
+| `/health` | GET | Health check |
+| `/info` | GET | Server information |
+| `/mcp` | GET | MCP connection (SSE) |
+| `/mcp` | POST | Single MCP request |
+| `/auth/oauth` | GET | OAuth authorization flow |
+| `/auth/callback` | GET | OAuth callback |
+
+## 🔐 Authentication
+
+The HTTP server supports two authentication methods:
+
+### 🔑 **Personal Access Token (PAT) Authentication**
+
+**Best for:** Simple setup, development, CI/CD pipelines
+
+```bash
+# Enable PAT authentication (default)
+AUTH_PAT_ENABLED=true
+```
+
+**Usage:**
+```bash
+curl -H "Authorization: Bearer YOUR_PAT_TOKEN" \
+     -H "x-ado-organization: your-org" \
+     http://localhost:3000/mcp
+```
+
+**Creating a PAT:**
+1. Go to Azure DevOps → User Settings → Personal Access Tokens
+2. Create token with required scopes:
+   - **Work Items**: Read & Write
+   - **Code**: Read & Write
+   - **Build**: Read & Execute
+   - **Release**: Read & Execute
+
+### 🔐 **OAuth 2.0 Authentication**
+
+**Best for:** Production deployments, user delegation
+
+```bash
+# Enable OAuth
+AUTH_OAUTH_ENABLED=true
+JWT_SECRET=your-jwt-secret
+AZURE_CLIENT_ID=your-client-id
+AZURE_CLIENT_SECRET=your-client-secret
+AZURE_TENANT_ID=your-tenant-id
+```
+
+**Setup Azure App Registration:**
+1. Go to Azure Portal → App Registrations → New Registration
+2. Set redirect URI: `https://your-domain.com/auth/callback`
+3. Add API permissions for Azure DevOps
+4. Generate client secret
+
+**Usage Flow:**
+```bash
+# 1. Initiate OAuth flow
+curl "http://localhost:3000/auth/oauth?organization=your-org"
+
+# 2. User completes OAuth flow in browser
+# 3. Use returned JWT token
+curl -H "Authorization: Bearer JWT_TOKEN" \
+     http://localhost:3000/mcp
+```
+
+## 🐳 Docker Deployment
+
+### 🐳 Quick Start with Docker
+
+```bash
+# Build and run with Docker Compose
+docker-compose up --build
+
+# Or build manually
+docker build -t azure-devops-mcp .
+docker run -p 3000:3000 --env-file .env azure-devops-mcp
+```
+
+### ☸️ Kubernetes Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azure-devops-mcp
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: azure-devops-mcp
+  template:
+    metadata:
+      labels:
+        app: azure-devops-mcp
+    spec:
+      containers:
+      - name: azure-devops-mcp
+        image: azure-devops-mcp:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: AUTH_PAT_ENABLED
+          value: "true"
+        - name: CORS_ORIGINS
+          value: "https://yourdomain.com"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: azure-devops-mcp-service
+spec:
+  selector:
+    app: azure-devops-mcp
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: LoadBalancer
+```
+
+### 🔧 Environment Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PORT` | No | `3000` | Server port |
+| `HOST` | No | `0.0.0.0` | Server host |
+| `AUTH_PAT_ENABLED` | No | `true` | Enable PAT authentication |
+| `AUTH_OAUTH_ENABLED` | No | `false` | Enable OAuth authentication |
+| `JWT_SECRET` | OAuth only | - | JWT signing secret |
+| `AZURE_CLIENT_ID` | OAuth only | - | Azure app client ID |
+| `AZURE_CLIENT_SECRET` | OAuth only | - | Azure app client secret |
+| `AZURE_TENANT_ID` | OAuth only | - | Azure tenant ID |
+| `CORS_ENABLED` | No | `true` | Enable CORS |
+| `CORS_ORIGINS` | No | `*` | Allowed CORS origins |
+| `RATE_LIMIT_WINDOW_MS` | No | `900000` | Rate limit window (15 min) |
+| `RATE_LIMIT_MAX_REQUESTS` | No | `100` | Max requests per window |
+| `LOG_LEVEL` | No | `info` | Logging level |
 
 ## 📝 Troubleshooting
 

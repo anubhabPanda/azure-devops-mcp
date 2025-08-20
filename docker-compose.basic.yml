@@ -1,0 +1,17 @@
+version: '3'
+
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - AUTH_PAT_ENABLED=true
+      - AUTH_OAUTH_ENABLED=false
+      - CORS_ENABLED=true
+      - CORS_ORIGINS=*
+      - RATE_LIMIT_WINDOW_MS=900000
+      - RATE_LIMIT_MAX_REQUESTS=100
+      - LOG_LEVEL=info
